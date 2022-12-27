@@ -8,6 +8,8 @@ namespace Hitager
 	public partial class HitagS : UserControl
 	{
 		private const byte CRC_PRESET = 0xFF;
+		private string pageCache = "";
+		private int tagSizeinByte = 0;
 
 		#region application event handling
 
@@ -42,35 +44,76 @@ namespace Hitager
 		private void buttonRead_Click(object sender, EventArgs e)
 		{
 			buttonRead.Enabled = false;
+			buttonWrite.Enabled = false;
 
 			try
 			{
 				portWriteWrapper("g00");  // Gain: Set to 0
 				portWriteWrapper("o");    // RF: Enable
 
+				// Read UID and config from the tag
 				textBoxUID.Text = sendCmd_UIDRequest();
 				textBoxCON.Text = sendCmd_SelectUID(textBoxUID.Text);
 
-				string pages = "";
-				for (int i = 0; i < 64; i++)
-				{
-					pages += sendCmd_ReadPage(i);
-				}
-				hexBox.ByteProvider = new DynamicByteProvider(Hitag2.ConvertHexStringToByteArray(pages));
+				// Get tag memory size
+				long con0 = long.Parse(textBoxCON.Text.Substring(6, 2), NumberStyles.HexNumber);
 
-				handleDebug("DONE");
+				if ((con0 & 0x03) == 0x00)
+					tagSizeinByte = 4;
+				else if ((con0 & 0x03) == 0x01)
+					tagSizeinByte = 32;
+				else if ((con0 & 0x03) == 0x02)
+					tagSizeinByte = 256;
+
+				// Read the memory pages
+				pageCache = "";
+				for (int i = 0; i < (tagSizeinByte / 4); i++)
+					pageCache += sendCmd_ReadPage(i);
+
+				hexBox.ByteProvider = new DynamicByteProvider(Hitag2.ConvertHexStringToByteArray(pageCache));
 			}
 			catch (Exception ex)
 			{
-				portWriteWrapper("f"); // RF: Disable
 				handleDebug(ex.Message);
 			}
 
 			buttonRead.Enabled = true;
+			buttonWrite.Enabled = true;
 		}
 
 		private void buttonWrite_Click(object sender, EventArgs e)
 		{
+			buttonRead.Enabled = false;
+			buttonWrite.Enabled = false;
+
+			try
+			{
+				if (pageCache.Length != tagSizeinByte * 2)
+					throw new Exception("WRONG PAGE CACHE LENGTH");
+
+				portWriteWrapper("g00");  // Gain: Set to 0
+				portWriteWrapper("o");    // RF: Enable
+
+				// Check each page if it changed and only then write it
+				for (int i = 0; i < (tagSizeinByte / 4); i++)
+				{
+					string oldPage = pageCache.Substring(i * 8, 8);
+
+					string newPage = "";
+					for (int j = 0; j < 4; j++)
+						newPage += hexBox.ByteProvider.ReadByte(i * 4 + j).ToString("X2");
+
+					if (newPage != oldPage)
+						sendCmd_WritePage(i, newPage);
+				}
+			}
+			catch (Exception ex)
+			{
+				handleDebug(ex.Message);
+			}
+
+			buttonRead.Enabled = true;
+			buttonWrite.Enabled = true;
 		}
 
 		/// <summary>
@@ -161,6 +204,44 @@ namespace Hitager
 			long pageBits = long.Parse(page, NumberStyles.HexNumber);
 			pageBits = (pageBits >> (8 + (8 - RET_LENGTH))) & 0xffffffff;
 			return pageBits.ToString("X8");
+		}
+
+		/// <summary>
+		/// Send the WRITE PAGE command
+		/// </summary>
+		/// <param name="pageAddress">The page address from 0 to 63</param>
+		/// <param name="data">Bytes (Data0, Data1, Data2, Data3) as hex string</param>
+		/// <exception cref="Exception"></exception>
+		private void sendCmd_WritePage(int pageAddress, string data)
+		{
+			const byte CMD_BYTE = 0x08;
+			const byte CMD_LENGTH = 4;
+
+			// Calculate the CRC to send
+			byte crc = CRC_PRESET;
+			calc_crc(ref crc, (CMD_BYTE << (8 - CMD_LENGTH)), CMD_LENGTH);
+			calc_crc(ref crc, Convert.ToByte(pageAddress), 8);
+
+			string response = portWriteWrapper(
+				"i" +
+				(16 + CMD_LENGTH).ToString("X2") +
+				(((long)CMD_BYTE << 16 | pageAddress << 8 | crc) << (8 - CMD_LENGTH)).ToString("X6"));
+
+			if (response != "A0")
+				throw new Exception("ERROR IN ACK");
+
+			// Calculate the CRC to send
+			crc = CRC_PRESET;
+			for (int i = 0; i < 4; i++)
+				calc_crc(ref crc, byte.Parse(data.Substring(i * 2, 2), NumberStyles.HexNumber), 8);
+
+			response = portWriteWrapper(
+				"i" +
+				(40).ToString("X2") +
+				(long.Parse(data, NumberStyles.HexNumber) << 8 | crc).ToString("X10"));
+
+			if (response != "A0")
+				throw new Exception("ERROR IN ACK");
 		}
 
 		/// <summary>
