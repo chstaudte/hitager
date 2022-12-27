@@ -665,7 +665,9 @@ namespace Hitager
             hitag3.SetPortHandler(ref portHandler);
             hitag3.setHexbox(ref hexBox);
 
-            bmwHt2.SetPortHandler(ref portHandler);
+			hitagS.SetPortHandler(ref portHandler);
+
+			bmwHt2.SetPortHandler(ref portHandler);
             bmwHt2.setHexbox(ref hexBox);
 
             superChip.SetPortHandler(ref portHandler);

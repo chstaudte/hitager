@@ -246,6 +246,12 @@
     <Compile Include="HitagAes.Designer.cs">
       <DependentUpon>HitagAes.cs</DependentUpon>
     </Compile>
+    <Compile Include="HitagS.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="HitagS.Designer.cs">
+      <DependentUpon>HitagS.cs</DependentUpon>
+    </Compile>
     <Compile Include="PortHandler.cs" />
     <Compile Include="ScalingImages.Designer.cs">
       <AutoGen>True</AutoGen>
@@ -327,6 +333,9 @@
     </EmbeddedResource>
     <EmbeddedResource Include="HitagAes.resx">
       <DependentUpon>HitagAes.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="HitagS.resx">
+      <DependentUpon>HitagS.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="ScalingImages.resx">
       <Generator>ResXFileCodeGenerator</Generator>
