@@ -38,7 +38,7 @@ unsigned long starttime=0;
 int rfoffset = 2;
 unsigned char AbicPhaseMeas;
 int debug = 0;
-int decodemode = 0;
+enum {DEC_MC=0, DEC_BC=1, DEC_AC=2} decodemode = 0; // manchester / biphase / anticollision coding
 int delay_1 = 20;
 int delay_0 = 14;
 int delay_p = 5;
@@ -616,10 +616,12 @@ void writeToTag(byte *data, int bits)
   }
   
   //end of transmission
-  if(decodemode == 0)
-    _delay_us(1200);
-  else
-    _delay_us(400); //Why biphase needs shorter delay???
+  switch (decodemode) {
+    case DEC_MC: _delay_us(1200); break;
+    case DEC_BC: _delay_us( 400); break; //Why biphase needs shorter delay???
+    case DEC_AC: _delay_us( 400); break;
+    default:     _delay_us(1200); break;
+  }
 
 }
 
@@ -645,7 +647,7 @@ void readTagResp()
   //last pulse
   if(isrCnt<400 && isrCnt>3)
   {
-    isrtimes_ptr[isrCnt-1]=isrtimes_ptr[isrCnt-2]+201;
+    isrtimes_ptr[isrCnt]=0x1fff;
     isrCnt++;
   }
   
@@ -678,10 +680,12 @@ void communicateTag(byte  *tagcmd, unsigned int cmdLengt)
     Serial.print("\n");
   }
 
-  if(decodemode == 0)
-    processManchester();
-  else
-    processcdp();
+  switch (decodemode) {
+    case DEC_MC: processManchester(); break;
+    case DEC_BC: processcdp(); break;
+    case DEC_AC: processAC(); break;
+    default:     break;
+  }
 }
 
 
@@ -931,6 +935,68 @@ void processcdp()
   char hash[20];
   Serial.print("\nRESP:");
   if(errorCnt || bytecount==0 )
+    Serial.print("NORESP\n");
+  else
+    for(int s=0; s<bytecount && s<20; s++) 
+    {
+      sprintf(hash,"%02X", mybytes[s]);
+      Serial.print(hash);
+    
+    }
+  Serial.print("\n");      
+
+}
+
+void processAC() 
+{
+  int bitcount = 0;
+  int bytecount = 0;
+  int mybytes [10] = {0};
+  int error = 0;
+  int i;
+
+  // set i after last value over 72 in first 10 samples
+  for (i = 10; i > 0; i--) {
+    if (isrtimes[i] > 72) {
+      i++;
+      break;
+    }
+  }
+
+  for(; i < isrCnt; i++) {
+    int t0 = isrtimes[i+0];
+    int t1 = isrtimes[i+1];
+    int t2 = isrtimes[i+2];
+    int t3 = isrtimes[i+3]; // last sample longer => EOF
+
+    if (t0 > 200) {
+      break;
+    }
+    if ((t0 < 47) && (t1 < 47) && (t2 < 47) && ((t3 < 47)||(t3 > 200))) { // 1: 4x 32
+      //Serial.print("1");
+      mybytes[bytecount] |= (1<<(7-bitcount));
+      bitcount++;
+      i+=3;
+      if (t3 > 200) // EOM
+        i--;
+    } else if ((t0 >= 47) && (t1 >= 47)) { // 0: 2x 64
+      //Serial.print("0");
+      bitcount++;
+      i++;
+      if (t1 > 200) // EOM
+        i--;
+    }      
+    if (bitcount > 7) {   
+      bitcount = 0;
+      bytecount++;
+    }
+  }
+  if (bitcount > 0)
+    bytecount++;
+  
+  char hash[20];
+  Serial.print("\nRESP:");
+  if (error || (bytecount==0))
     Serial.print("NORESP\n");
   else
     for(int s=0; s<bytecount && s<20; s++) 
